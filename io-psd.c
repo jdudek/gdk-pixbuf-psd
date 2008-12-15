@@ -108,6 +108,7 @@ typedef struct
 	guint              current_row;
 	guint              position; // ? redundant?
 	guint16*           lines_lengths;
+	gboolean           finalized;
 } PsdContext;
 
 static guint16
@@ -424,18 +425,15 @@ gdk_pixbuf__psd_image_begin_load (GdkPixbufModuleSizeFunc size_func,
 	context->state = PSD_STATE_HEADER;
 
 	// we'll allocate larger buffer once we know image size
-	context->buffer = g_malloc(256);
+	context->buffer = g_malloc(PSD_HEADER_SIZE);
 	reset_context(context);
-
-	//context->bytes_read = 0;
-	//context->bytes_to_skip = 0;
-	//context->bytes_to_skip_known = FALSE;
 
 	context->channels_buffers = NULL;
 	context->current_channel = 0;
 	context->current_row = 0;
 	context->position = 0;
 	context->lines_lengths = NULL;
+	context->finalized = FALSE;
 
 	return (gpointer) context;
 }
@@ -451,32 +449,8 @@ gdk_pixbuf__psd_image_stop_load (gpointer context_ptr, GError **error)
 			error,
 			GDK_PIXBUF_ERROR,
 			GDK_PIXBUF_ERROR_CORRUPT_IMAGE,
-			("PSD file was corrupted or incomplete."));
+			("PSD file was corrupted or incomplete. (not PSD_STATE_DONE)"));
 		retval = FALSE;
-	} else {
-		// convert or copy channel buffers to our GdkPixbuf
-
-		//for (int i = 0; i < ctx->channels; i++) {
-		guchar* pixels = gdk_pixbuf_get_pixels(ctx->pixbuf);
-		for (int i = 0; i < ctx->height; i++) {
-			for (int j = 0; j < ctx->width; j++) {
-				pixels[3*j+0] = 0x00;
-				pixels[3*j+1] = 0x00;
-				pixels[3*j+2] = 0x00;
-			}
-			pixels += gdk_pixbuf_get_rowstride(ctx->pixbuf);
-		}
-		
-		for (int i = 0; i < 3; i++) {
-			guchar* pixels = gdk_pixbuf_get_pixels(ctx->pixbuf);
-			for (int j = 0; j < ctx->height; j++) {
-				guchar* src_buf = &ctx->channels_buffers[i][ctx->width * j];
-				for (int k = 0; k < ctx->width; k++) {
-					pixels[3 * k + i] = src_buf[k];
-				}
-				pixels += gdk_pixbuf_get_rowstride(ctx->pixbuf);
-			}
-		}
 	}
 	
 	g_free (ctx->buffer); // TODO a few more buffers need freeing
@@ -510,6 +484,25 @@ gdk_pixbuf__psd_image_load_increment (gpointer      context_ptr,
 					ctx->channels = hd.channels;
 					ctx->depth = hd.depth;
 					ctx->color_mode = hd.color_mode;
+					
+					g_message("color_mode=%d, channels=%d, depth=%d",
+						ctx->color_mode, ctx->channels, ctx->depth);
+					
+					if (ctx->color_mode != PSD_MODE_RGB/* &&
+					    ctx->color_mode != PSD_MODE_CMYK*/
+					) {
+						g_set_error (error, GDK_PIXBUF_ERROR,
+							GDK_PIXBUF_ERROR_UNKNOWN_TYPE,
+							("Unsupported color mode"));
+						return FALSE;
+					}
+					
+					if (ctx->depth != 8) {
+						g_set_error (error, GDK_PIXBUF_ERROR,
+							GDK_PIXBUF_ERROR_UNKNOWN_TYPE,
+							("Unsupported color depth"));
+						return FALSE;
+					}
 					
 					if (ctx->size_func) {
 						gint w = ctx->width;
@@ -613,23 +606,31 @@ gdk_pixbuf__psd_image_load_increment (gpointer      context_ptr,
 				}
 				break;
 			case PSD_STATE_CHANNEL_DATA:
-				if (context->compression == PSD_COMPRESSION_RLE)
 				{
-					guint line_length = ctx->lines_lengths[
-						ctx->current_channel * ctx->height + ctx->current_row];
-					if (feed_buffer(ctx->buffer, &ctx->bytes_read, &data,
-							&size, line_length))
+					guint line_length = ctx->width;
+					if (ctx->compression == PSD_COMPRESSION_RLE) {
+						line_length = ctx->lines_lengths[
+							ctx->current_channel * ctx->height + ctx->current_row];
+					}
+					
+					if (feed_buffer(ctx->buffer, &ctx->bytes_read, &data, &size,
+							line_length))
 					{
 						ctx->bytes_read = 0;
-						decompress_line(
-							ctx->buffer,
-							line_length,
-							ctx->channels_buffers[ctx->current_channel]
-								+ ctx->position
-						);
-						context->position += context->width;
-						++context->current_row;
-						
+					
+						if (ctx->compression == PSD_COMPRESSION_RLE) {
+							decompress_line(ctx->buffer, line_length,
+								ctx->channels_buffers[ctx->current_channel]
+									+ ctx->position
+							);
+						} else {
+							memcpy(ctx->channels_buffers[ctx->current_channel]
+								+ ctx->position, ctx->buffer, ctx->width);
+						}
+
+						ctx->position += ctx->width;
+						++ctx->current_row;
+					
 						if (ctx->current_row >= ctx->height) {
 							++ctx->current_channel;
 							ctx->current_row = 0;
@@ -639,14 +640,6 @@ gdk_pixbuf__psd_image_load_increment (gpointer      context_ptr,
 							}
 						}
 					}
-				} else {
-					if (feed_buffer(
-							context->buffer, &context->bytes_read,
-							&data, &size, context->width))
-					{
-						//memcpy(dest, context->buffer, context->hd.columns);
-						// TODO
-					}
 				}
 				break;
 			case PSD_STATE_DONE:
@@ -655,6 +648,23 @@ gdk_pixbuf__psd_image_load_increment (gpointer      context_ptr,
 				break;
 		}
 	}
+	
+	if (ctx->state == PSD_STATE_DONE && !ctx->finalized) {
+		// convert or copy channel buffers to our GdkPixbuf
+		if (ctx->color_mode == PSD_MODE_RGB) {
+			guchar* pixels = gdk_pixbuf_get_pixels(ctx->pixbuf);
+			for (int i = 0; i < ctx->height; i++) {
+				for (int j = 0; j < ctx->width; j++) {
+					pixels[3*j+0] = ctx->channels_buffers[0][ctx->width*i + j];
+					pixels[3*j+1] = ctx->channels_buffers[1][ctx->width*i + j];
+					pixels[3*j+2] = ctx->channels_buffers[2][ctx->width*i + j];
+				}
+				pixels += gdk_pixbuf_get_rowstride(ctx->pixbuf);
+			}
+		}
+		ctx->finalized = TRUE;
+	}
+	
 	return TRUE;
 }
 
