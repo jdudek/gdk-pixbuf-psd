@@ -25,8 +25,6 @@
  * - use http://library.gnome.org/devel/glib/unstable/glib-Byte-Order-Macros.html
  * - report errors from parse_psd_header
  * - other color modes (CMYK at least)
- * - ...
- * - MODULE_ENTRY stuff
  * - i18n
  */
 
@@ -176,7 +174,7 @@ feed_buffer (guchar*        buffer,
  * Attempts to read size of the block and then skip this block.
  *
  * Returns true when finishes consuming block data, otherwise false
- * (false means we must call skip_block once again)
+ * (false means we need to call skip_block again)
  */
 static gboolean
 skip_block (PsdContext* context, const guchar** data, guint* size)
@@ -340,9 +338,10 @@ gdk_pixbuf__psd_image_load_increment (gpointer      context_ptr,
 					ctx->depth = hd.depth;
 					ctx->color_mode = hd.color_mode;
 					
+					/*
 					if (ctx->color_mode == PSD_MODE_RGB && ctx->channels == 4) {
 						ctx->use_alpha = TRUE;
-					}
+					}*/
 					
 					//g_message("color_mode=%d, channels=%d, depth=%d",
 					//	ctx->color_mode, ctx->channels, ctx->depth);
