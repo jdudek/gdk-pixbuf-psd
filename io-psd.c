@@ -33,7 +33,6 @@
 #include <gdk-pixbuf/gdk-pixbuf-io.h>
 #include <glib/gstdio.h>
 
-
 typedef struct
 {
 	guchar  signature[4];  /* file ID, always "8BPS" */
@@ -211,6 +210,7 @@ static void
 decompress_line(const guchar* src, guint line_length, guchar* dest)
 {
 	guint16 bytes_read = 0;
+	int k;
 	while (bytes_read < line_length) {
 		gchar byte = src[bytes_read];
 		++bytes_read;
@@ -221,7 +221,7 @@ decompress_line(const guchar* src, guint line_length, guchar* dest)
 			gint count = byte + 1;
 		
 			/* copy next count bytes */
-			for (int k = 0; k < count; ++k) {
+			for (k = 0; k < count; ++k) {
 				*dest = src[bytes_read];
 				++dest;
 				++bytes_read;
@@ -232,7 +232,7 @@ decompress_line(const guchar* src, guint line_length, guchar* dest)
 			/* copy next byte count times */
 			guchar next_byte = src[bytes_read];
 			++bytes_read; 
-			for (int k = 0; k < count; ++k) {
+			for (k = 0; k < count; ++k) {
 				*dest = next_byte;
 				++dest;
 			}
@@ -303,7 +303,8 @@ gdk_pixbuf__psd_image_stop_load (gpointer context_ptr, GError **error)
 	g_free(ctx->buffer);
 	g_free(ctx->lines_lengths);
 	if (ctx->ch_bufs) {
-		for (int i = 0; i < ctx->channels; i++) {
+		int i;
+		for (i = 0; i < ctx->channels; i++) {
 			g_free(ctx->ch_bufs[i]);
 		}
 	}
@@ -320,6 +321,7 @@ gdk_pixbuf__psd_image_load_increment (gpointer      context_ptr,
                                       GError      **error)
 {
 	PsdContext* ctx = (PsdContext*) context_ptr;
+	int i, j;
 	
 	while (size > 0) {
 		switch (ctx->state) {
@@ -387,7 +389,7 @@ gdk_pixbuf__psd_image_load_increment (gpointer      context_ptr,
 					
 					/* create separate buffers for each channel */
 					ctx->ch_bufs = g_malloc(sizeof(guchar*) * ctx->channels);
-					for (int i = 0; i <	ctx->channels; i++) {
+					for (i = 0; i < ctx->channels; i++) {
 						ctx->ch_bufs[i] =
 							g_malloc(ctx->width*ctx->height*ctx->depth_bytes);
 
@@ -448,7 +450,7 @@ gdk_pixbuf__psd_image_load_increment (gpointer      context_ptr,
 						 &size,	2 * ctx->height * ctx->channels))
 				{
 					/* convert from different endianness */
-					for (int i = 0; i <	ctx->height * ctx->channels; i++) {
+					for (i = 0; i < ctx->height * ctx->channels; i++) {
 						ctx->lines_lengths[i] = read_uint16(
 							(guchar*) &ctx->lines_lengths[i]);
 					}
@@ -505,8 +507,8 @@ gdk_pixbuf__psd_image_load_increment (gpointer      context_ptr,
 		guint b = ctx->depth_bytes;
 
 		if (ctx->color_mode == PSD_MODE_RGB) {
-			for (int i = 0; i < ctx->height; i++) {
-				for (int j = 0; j < ctx->width; j++) {
+			for (i = 0; i < ctx->height; i++) {
+				for (j = 0; j < ctx->width; j++) {
 					pixels[3*j+0] = ctx->ch_bufs[0][ctx->width*i*b + j*b];
 					pixels[3*j+1] = ctx->ch_bufs[1][ctx->width*i*b + j*b];
 					pixels[3*j+2] = ctx->ch_bufs[2][ctx->width*i*b + j*b];
@@ -516,8 +518,8 @@ gdk_pixbuf__psd_image_load_increment (gpointer      context_ptr,
 		} else if (ctx->color_mode == PSD_MODE_GRAYSCALE ||
 		           ctx->color_mode == PSD_MODE_DUOTONE)
 		{
-			for (int i = 0; i < ctx->height; i++) {
-				for (int j = 0; j < ctx->width; j++) {
+			for (i = 0; i < ctx->height; i++) {
+				for (j = 0; j < ctx->width; j++) {
 					pixels[3*j+0] = pixels[3*j+1] = pixels[3*j+2] =
 						ctx->ch_bufs[0][ctx->width*i*b + j*b];
 				}
@@ -528,8 +530,8 @@ gdk_pixbuf__psd_image_load_increment (gpointer      context_ptr,
 			   CMYK-RGB conversion distorts colors significantly  */
 		
 			guchar* pixels = gdk_pixbuf_get_pixels(ctx->pixbuf);
-			for (int i = 0; i < ctx->height; i++) {
-				for (int j = 0; j < ctx->width; j++) {
+			for (i = 0; i < ctx->height; i++) {
+				for (j = 0; j < ctx->width; j++) {
 					double c = 1.0 -
 						(double) ctx->ch_bufs[0][ctx->width*i + j] / 255.0;
 					double m = 1.0 -
