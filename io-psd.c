@@ -105,7 +105,7 @@ typedef struct
 	guchar**           ch_bufs;       /* channels buffers */
 	guint              curr_ch;       /* current channel */
 	guint              curr_row;
-	guint              pos;           // redundant?
+	guint              pos;
 	guint16*           lines_lengths;
 	gboolean           finalized;
 	gboolean           use_alpha;
@@ -350,6 +350,7 @@ gdk_pixbuf__psd_image_load_increment (gpointer      context_ptr,
 					if (ctx->color_mode != PSD_MODE_RGB
 					    && ctx->color_mode != PSD_MODE_GRAYSCALE
 					    && ctx->color_mode != PSD_MODE_CMYK
+					    && ctx->color_mode != PSD_MODE_DUOTONE
 					) {
 						g_set_error (error, GDK_PIXBUF_ERROR,
 							GDK_PIXBUF_ERROR_UNKNOWN_TYPE,
@@ -522,7 +523,9 @@ gdk_pixbuf__psd_image_load_increment (gpointer      context_ptr,
 				}
 				pixels += gdk_pixbuf_get_rowstride(ctx->pixbuf);
 			}
-		} else if (ctx->color_mode == PSD_MODE_GRAYSCALE) {
+		} else if (ctx->color_mode == PSD_MODE_GRAYSCALE ||
+		           ctx->color_mode == PSD_MODE_DUOTONE)
+		{
 			for (int i = 0; i < ctx->height; i++) {
 				for (int j = 0; j < ctx->width; j++) {
 					pixels[3*j+0] = pixels[3*j+1] = pixels[3*j+2] =
