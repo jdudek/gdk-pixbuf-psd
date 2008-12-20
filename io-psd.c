@@ -1,5 +1,5 @@
-/* -*- mode: C; c-file-style: "linux" -*- */
-/* GdkPixbuf library - PSD image loader
+/*
+ * GdkPixbuf library - PSD image loader
  *
  * Copyright (C) 2008 Jan Dudek
  *
@@ -108,7 +108,6 @@ typedef struct
 	guint              pos;
 	guint16*           lines_lengths;
 	gboolean           finalized;
-	gboolean           use_alpha;
 } PsdContext;
 
 
@@ -221,7 +220,7 @@ decompress_line(const guchar* src, guint line_length, guchar* dest)
 		} else if (byte > -1) {
 			gint count = byte + 1;
 		
-			// copy next count bytes
+			/* copy next count bytes */
 			for (int k = 0; k < count; ++k) {
 				*dest = src[bytes_read];
 				++dest;
@@ -230,7 +229,7 @@ decompress_line(const guchar* src, guint line_length, guchar* dest)
 		} else {
 			gint count = -byte + 1;
 		
-			// copy next byte count times
+			/* copy next byte count times */
 			guchar next_byte = src[bytes_read];
 			++bytes_read; 
 			for (int k = 0; k < count; ++k) {
@@ -272,7 +271,7 @@ gdk_pixbuf__psd_image_begin_load (GdkPixbufModuleSizeFunc size_func,
 	
 	context->state = PSD_STATE_HEADER;
 
-	// we'll allocate larger buffer once we know image size
+	/* we'll allocate larger buffer once we know image size */
 	context->buffer = g_malloc(PSD_HEADER_SIZE);
 	reset_context_buffer(context);
 
@@ -282,7 +281,6 @@ gdk_pixbuf__psd_image_begin_load (GdkPixbufModuleSizeFunc size_func,
 	context->pos = 0;
 	context->lines_lengths = NULL;
 	context->finalized = FALSE;
-	context->use_alpha = FALSE;
 
 	return (gpointer) context;
 }
@@ -339,14 +337,6 @@ gdk_pixbuf__psd_image_load_increment (gpointer      context_ptr,
 					ctx->depth_bytes = (ctx->depth/8 > 0 ? ctx->depth/8 : 1);
 					ctx->color_mode = hd.color_mode;
 					
-					/*
-					if (ctx->color_mode == PSD_MODE_RGB && ctx->channels == 4) {
-						ctx->use_alpha = TRUE;
-					}*/
-					
-					//g_message("color_mode=%d, channels=%d, depth=%d",
-					//	ctx->color_mode, ctx->channels, ctx->depth);
-					
 					if (ctx->color_mode != PSD_MODE_RGB
 					    && ctx->color_mode != PSD_MODE_GRAYSCALE
 					    && ctx->color_mode != PSD_MODE_CMYK
@@ -374,17 +364,17 @@ gdk_pixbuf__psd_image_load_increment (gpointer      context_ptr,
 						}
 					}
 					
-					// we need buffer that can contain one channel data for one
-					// row in RLE compressed format. 2*width should be enough
+					/* we need buffer that can contain one channel data for one
+					   row in RLE compressed format. 2*width should be enough */
 					g_free(ctx->buffer);
 					ctx->buffer = g_malloc(ctx->width * 2 * ctx->depth_bytes);
 					
-					// this will be needed for RLE decompression
+					/* this will be needed for RLE decompression */
 					ctx->lines_lengths =
 						g_malloc(2 * ctx->channels * ctx->height);
 					
 					ctx->pixbuf = gdk_pixbuf_new(GDK_COLORSPACE_RGB,
-						ctx->use_alpha, 8, ctx->width, ctx->height);
+						FALSE, 8, ctx->width, ctx->height);
 
 					if (ctx->lines_lengths == NULL || ctx->buffer == NULL ||
 						ctx->pixbuf == NULL)
@@ -395,7 +385,7 @@ gdk_pixbuf__psd_image_load_increment (gpointer      context_ptr,
 						return FALSE;
 					}
 					
-					// create separate buffers for each channel
+					/* create separate buffers for each channel */
 					ctx->ch_bufs = g_malloc(sizeof(guchar*) * ctx->channels);
 					for (int i = 0; i <	ctx->channels; i++) {
 						ctx->ch_bufs[i] =
@@ -457,7 +447,7 @@ gdk_pixbuf__psd_image_load_increment (gpointer      context_ptr,
 						(guchar*) ctx->lines_lengths, &ctx->bytes_read, &data,
 						 &size,	2 * ctx->height * ctx->channels))
 				{
-					// convert from different endianness
+					/* convert from different endianness */
 					for (int i = 0; i <	ctx->height * ctx->channels; i++) {
 						ctx->lines_lengths[i] = read_uint16(
 							(guchar*) &ctx->lines_lengths[i]);
@@ -510,11 +500,11 @@ gdk_pixbuf__psd_image_load_increment (gpointer      context_ptr,
 	}
 	
 	if (ctx->state == PSD_STATE_DONE && !ctx->finalized) {
-		// convert or copy channel buffers to our GdkPixbuf
+		/* convert or copy channel buffers to our GdkPixbuf */
 		guchar* pixels = gdk_pixbuf_get_pixels(ctx->pixbuf);
 		guint b = ctx->depth_bytes;
 
-		if (ctx->color_mode == PSD_MODE_RGB && !ctx->use_alpha) {
+		if (ctx->color_mode == PSD_MODE_RGB) {
 			for (int i = 0; i < ctx->height; i++) {
 				for (int j = 0; j < ctx->width; j++) {
 					pixels[3*j+0] = ctx->ch_bufs[0][ctx->width*i*b + j*b];
@@ -533,22 +523,9 @@ gdk_pixbuf__psd_image_load_increment (gpointer      context_ptr,
 				}
 				pixels += gdk_pixbuf_get_rowstride(ctx->pixbuf);
 			}
-		}
-#if 0		
-		else if (ctx->color_mode == PSD_MODE_RGB && ctx->use_alpha) {
-			guchar* pixels = gdk_pixbuf_get_pixels(ctx->pixbuf);
-			for (int i = 0; i < ctx->height; i++) {
-				for (int j = 0; j < ctx->width; j++) {
-					pixels[4*j+0] = ctx->ch_bufs[0][ctx->width*i + j];
-					pixels[4*j+1] = ctx->ch_bufs[1][ctx->width*i + j];
-					pixels[4*j+2] = ctx->ch_bufs[2][ctx->width*i + j];
-					pixels[4*j+3] = ctx->ch_bufs[3][ctx->width*i + j];
-				}
-				pixels += gdk_pixbuf_get_rowstride(ctx->pixbuf);
-			}
-#endif
-		else if (ctx->color_mode == PSD_MODE_CMYK) {
-			// unfortunately, this doesn't seem to work correctly...
+		} else if (ctx->color_mode == PSD_MODE_CMYK) {
+			/* unfortunately, this doesn't work 100% correctly...
+			   CMYK-RGB conversion distorts colors significantly  */
 		
 			guchar* pixels = gdk_pixbuf_get_pixels(ctx->pixbuf);
 			for (int i = 0; i < ctx->height; i++) {
