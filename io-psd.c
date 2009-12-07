@@ -576,6 +576,7 @@ MODULE_ENTRY (fill_info) (GdkPixbufFormat *info)
 	};
 	static gchar * mime_types[] = {
 		"image/x-psd",
+		"image/vnd.adobe.photoshop",
 		NULL
 	};
 	static gchar * extensions[] = {
